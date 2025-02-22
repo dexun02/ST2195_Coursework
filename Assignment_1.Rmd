@@ -1,0 +1,117 @@
+## Part one
+a)
+
+--Import the required libraries.
+```{r}
+library(ggplot2)
+```
+
+-- Define the target density function f(x).
+```{r}
+f <- function(x) {
+  0.5 * exp(-abs(x))
+}
+```
+-- Create variables N = 10000 and S = 1 as given in the question.Let x0 = 0 and the first term of sample_space to be x0 with n numbers of 0.
+
+```{r}
+N <- 10000
+s <- 1
+x0 <- 0
+sample_space <- numeric(N)
+sample_space[1] <- x0
+```
+
+-- Function for Metropolis-Hastings algorithm.
+```{r}
+for (i in 2:N) {
+  x_current <- sample_space[i - 1]
+  x_star <- rnorm(1, mean = x_current, sd = s)
+  ratio <- log(f(x_star)) - log(f(x_current))
+  if (runif(1) < exp(ratio)) {
+    sample_space[i] <- x_star
+  } else {
+    sample_space[i] <- x_current
+  }
+}
+
+samples_df <- data.frame(x = sample_space)
+```
+
+
+--Using the values generated, construct a histogram and kernel density plot and overlay graph of f(x).
+```{r}
+ggplot(samples_df, aes(x = x)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, fill = "skyblue", color = "black", alpha = 0.5) +
+  geom_density(color = "blue", linewidth = 1.2) +
+  stat_function(fun = f, color = "red", linewidth = 1.2) +
+  labs(title = "Metropolis-Hastings Simulation", x = "x", y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+--Using the functions defined above, sub in values of N and S to generate samples to find sample mean and standard deviation.
+```{r}
+sample_mean <- mean(sample_space)
+sample_sd <- sd(sample_space)
+cat("Sample Mean:", sample_mean, "\n")
+cat("Sample Standard Deviation:", sample_sd, "\n")
+```
+
+## Part B
+
+
+-- Function to run Metropolis-Hastings for chains.
+```{r}
+run_chain <- function(N, s, x0) {
+  sample_space <- numeric(N)
+  for (i in 2:N) {
+    x_current <- sample_space[i - 1]
+    x_star <- rnorm(1, mean = x_current, sd = s)
+    acceptance_ratio <- f(x_star) / f(x_current)
+    if (runif(1) < acceptance_ratio) {
+      sample_space[i] <- x_star
+    } else {
+      sample_space[i]<- x_current
+    }
+  }
+  return(sample_space)
+}
+```
+
+--Change parameter N,J and s to new values given. Generate values for s in the interval between 0.001 and 1.
+```{r}
+N <- 2000
+J <- 4
+s_values <- seq(0.001, 1, length.out = 150)
+R_hat_values <- numeric(length(s_values))
+```
+
+--Generate values for r hat and store it in array R_hat_values.
+```{r}
+for (k in seq_along(s_values)) {
+  s <- s_values[k]
+  chains <- replicate(J, run_chain(N, s, runif(1)), simplify = FALSE)
+  M_j <- sapply(chains, mean)
+  V_j <- sapply(chains, var)
+  W <- mean(V_j)
+  M <- mean(M_j)
+  B <- sum((M_j - M)^2)
+  R_hat <- sqrt((B + W) / W)
+  R_hat_values[k] <- R_hat
+}
+```
+--plotting the graph of values of rhat over a grid of s values in the interval between 0.001 and 1.
+```{r}
+R_hat_df <- data.frame(s = s_values, R_hat = R_hat_values)
+ggplot(R_hat_df, aes(x = s, y = R_hat)) +
+  geom_line(color = "blue") +
+  geom_hline(yintercept = 1.05, color = "red", linetype = "dashed", linewidth = 1, alpha = 0.8) +
+  labs(x = "s", y = expression(hat(R)),
+       title = expression(paste("Convergence Diagnostic ", hat(R), " over different values of s"))) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+cat("R_hat Value:", R_hat, "\n")
+```
+
