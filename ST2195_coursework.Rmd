@@ -1,0 +1,935 @@
+
+# Question 2(a)
+
+Import libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggcorrplot)
+library(caret)
+library(pROC)
+library(ROCR)
+library(tidyr)
+
+```
+
+Reading Dataset
+```{r}
+# Create an empty list to store data frames
+df_list <- list()
+
+# Goes through each year from 1995 to 1999
+for (year in 1995:1999) {
+  file_path <- paste0("dataset/", year, ".csv")
+  
+  if (file.exists(file_path)) {
+    df <- read.csv(file_path)
+
+    # Data Cleaning
+    df <- df[!duplicated(df), ]  # Remove duplicates
+
+    # Remove negative values and Null values for time
+    df <- df[df$ActualElapsedTime >= 0 | is.na(df$ActualElapsedTime), ]
+
+    # Remove negative values and Null values for time
+    df <- df[df$CRSElapsedTime >= 0 | is.na(df$CRSElapsedTime), ]
+
+    # #Remove values greater than 2359 and Null values for 24 hour time
+    df <- df[df$DepTime <= 2359 | is.na(df$DepTime), ]
+    df <- df[df$ArrTime <= 2359 | is.na(df$ArrTime), ]
+
+    # Append cleaned data to the main DataFrame
+    df_list[[length(df_list) + 1]] <- df
+  }
+}
+
+# Display the first few rows of the final DataFrame
+main_df <- do.call(rbind, df_list)
+
+# View first few rows
+head(main_df)
+```
+
+Converting main_df column names to lowercase.
+```{r}
+colnames(main_df) <- tolower(colnames(main_df))
+
+print(colnames(main_df))
+```
+# Creating delay_df to answer part (a)
+
+Taking columns 'year', 'month', 'dayofmonth', 'dayofweek', 'deptime', 'arrtime', 'arrdelay' into delay_df
+```{r}
+# Select specific columns and create a new data frame
+delay_df <- main_df[, c("year", "month", "dayofmonth", "dayofweek", "deptime", "arrtime", "arrdelay")]
+
+# View the first few rows
+head(delay_df)
+
+```
+
+Checking for null values
+```{r}
+# Count missing (NA) values for each column
+colSums(is.na(delay_df))
+
+```
+
+Summary of delay_df
+```{r}
+str(delay_df)
+```
+Converting 'month' and 'dayofweek' into their names for easier identification
+```{r}
+# checking the values in 
+unique(delay_df$month)
+unique(delay_df$dayofweek)
+
+```
+
+```{r}
+#creating a mapping dataframe for 'dayofweek'
+day_of_week_mapping <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+#Creating a mapping dataframe for 'month' 
+month_mapping <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+# Map numeric values to strings
+delay_df$dayofweekstring <- day_of_week_mapping[delay_df$dayofweek]
+delay_df$monthstring <- month_mapping[delay_df$month]
+
+# View result
+head(delay_df)
+```
+Check "monthstring" and "dayofweekstring" for null values
+```{r}
+sum(is.na(delay_df$monthstring))
+sum(is.na(delay_df$dayofweek))
+```
+
+# Finding Delays
+
+Based on United States Federal Aviation Administration (FAA), a flight is considered to be delayed when it's arrival time is 15 minutes later than its scheduled time. For part (a), I will be caterizing the delays by the following:
+
+- on_time: less than 15mins delayed
+
+- mild_delay: 15 to 60mins delayed
+
+- moderate_delay: 60 to 180mins delayed 
+
+- severe_delay: more than 180mins delayed 
+
+These will be added to a new column "delay_classification" and will provide on insights that will help us find out what are the best times of the weeks to book an air ticket. 
+
+
+```{r}
+delay_classification <- function(time) {
+  if (is.na(time)) {
+    return(NA)#If the value is missing
+  } else if (time <= 15) { #Delay is less than 15 minutes
+    return("on_time")
+  } else if (time < 60) { #Delay is less than 60 minutes
+    return("mild_delay")
+  } else if (time < 180) { #Delay is less than 180 minutes
+    return("moderate_delay")
+  } else {
+    return("severe_delay") #Delay is greater than 180 minutes
+  }
+}
+
+delay_df$delay_classification <- sapply(delay_df$arrdelay, delay_classification)
+print(head(delay_df))
+```
+Removing Null values in delay_classification
+```{r}
+delay_df <- delay_df[!is.na(delay_df$delay_classification), ]
+```
+
+Checking for missing values in delay_classification
+```{r}
+sum(is.na(delay_df$delay_classification))
+```
+Checking delay_classification distribution
+```{r}
+table(delay_df$delay_classification)
+```
+# Classifying time of day
+
+We will be grouping the time of day as following:
+
+- Midnight: 0000 to 0559
+
+- Morning: 0600 to 1159
+
+- Afternoon: 1200 to 1759
+
+- Night: 1800 to 2359 
+
+These will be added to a new column "time_of_day" and will provide insights on when is the best time of the day to book an air ticket. We used deptime as the timing on tickets are usually the departure time of flights.
+```{r}
+# Creating a function for time of day classification
+time_of_day <- function(time) {
+  if (is.na(time)) {
+    return(NA)
+  } else if (time <= 559) {
+    return("Midnight")
+  } else if (time <= 1159) {
+    return("Morning")
+  } else if (time <= 1759) {
+    return("Afternoon")
+  } else {
+    return("Night")
+  }
+}
+
+delay_df$time_of_day <- sapply(delay_df$deptime, time_of_day)
+
+print(head(delay_df))
+```
+Check for missing values in time_of_day
+```{r}
+sum(is.na(delay_df$time_of_day))
+```
+Replacing Month and Days with their respective names (string)
+```{r}
+# Creating a mapping list for days of a week and applying it to delay_df
+days <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+delay_df$dayofweekstring <- days[delay_df$dayofweek]
+
+# Creating a mapping list for months
+months <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+delay_df$monthstring <- months[delay_df$month]
+
+# Finalised main data frame
+head(delay_df)
+
+```
+Checking for null values for before using dataframe to answer 2(a)
+```{r}
+colSums(is.na(delay_df))
+```
+Renaming dataframe to final_delay_df
+```{r}
+final_delay_df <- delay_df
+```
+
+# 2(a) Finding the best time of day to book a plane ticket
+
+In order to find the best time of day to book a plane ticket, we will be grouping delays by time_of_day and 'delay_classification" and finding the count of each.
+```{r}
+# Count combinations of time_of_day and delay_classification
+grouped_time_df <- as.data.frame(table(final_delay_df$time_of_day, final_delay_df$delay_classification))
+
+# Rename columns for clarity
+colnames(grouped_time_df) <- c("time_of_day", "delay_classification", "count")
+
+# View result
+print(grouped_time_df)
+```
+
+```{r}
+# calculating the total count of delays for each time of day
+grouped_time_df <- grouped_time_df %>%
+  group_by(time_of_day) %>%
+  mutate(
+    total_time_of_day = sum(count), # total count of delays for each time of day
+    percentage = round((count / total_time_of_day) * 100, 2) # compute percentage
+  ) %>%
+  ungroup()
+
+# Display the result
+print(grouped_time_df)
+
+```
+
+Plotting a pie chart that shows the proportion of each delay classification. 
+```{r}
+# Aggregate the count for each delay classification
+delay_counts <- aggregate(count ~ delay_classification, data = grouped_time_df, sum)
+
+# Define colors for delay classifications (from green to red)
+color_map <- c(
+  "on_time" = "green",        
+  "mild_delay" = "yellow",     
+  "moderate_delay" = "orange", 
+  "severe_delay" = "red"    
+)
+# Match the order of labels to the color map
+colors <- color_map[match(delay_counts$delay_classification, names(color_map))]
+
+pie(
+  delay_counts$count,
+  labels = paste0(delay_counts$delay_classification, " (", round(100 * delay_counts$count / sum(delay_counts$count), 1), "%)"),
+  col = colors,
+  main = "Distribution of Delay Classification"
+)
+
+
+```
+Plotting a bar chart that shows percentage of delays against time of day.
+```{r}
+# Optional: reorder delay_classification for consistent color assignment
+grouped_time_df$delay_classification <- factor(
+  grouped_time_df$delay_classification,
+  levels = c("on_time", "mild_delay", "moderate_delay", "severe_delay")
+)
+
+# Define color mapping similar to Python
+color_map <- c(
+  "on_time" = "green",       
+  "mild_delay" = "yellow",    
+  "moderate_delay" = "orange",
+  "severe_delay" = "red"  
+)
+
+# Plot
+ggplot(grouped_time_df, aes(x = time_of_day, y = percentage, fill = delay_classification)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
+  geom_text(aes(label = paste0(percentage, "%")),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_fill_manual(values = color_map) +
+  labs(title = "Percentage of Delays by Time of Day",
+       x = "Time of Day", y = "Percentage",
+       fill = "Delay Classification") +
+  theme_minimal()
+```
+Based on the graph above, morning flights have the most flights that are on time at 86.68% of flights, while night flights tend to be delayed more often with only 70.69% of flights being on time. Based on the visuals above, I would recommend booking tickets in the mornings and avoiding booking night flights.
+
+
+# Finding the best day of the week to book flight tickets.
+
+ In order to find the best day of the week to book a plane ticket, we will be grouping delays by "dayofweekstring" and 'delay_classification" and finding the count of each.
+```{r}
+# Grouping by day of week and delay classification, and counting
+grouped_day_df <- final_delay_df %>%
+  group_by(dayofweekstring, delay_classification) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Calculate percentages within each day of the week
+grouped_day_df <- grouped_day_df %>%
+  group_by(dayofweekstring) %>%
+  mutate(percentage = round((count / sum(count)) * 100, 2)) %>%
+  ungroup()
+
+# View the result
+print(grouped_day_df)
+```
+Plotting a bar chart that shows percentage of delays against day of the week.
+```{r}
+final_delay_df$dayofweekstring <- factor(
+  final_delay_df$dayofweekstring,
+  levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+)
+
+# Group, count, and calculate percentages
+grouped_day_df <- final_delay_df %>%
+  group_by(dayofweekstring, delay_classification) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(dayofweekstring) %>%
+  mutate(percentage = round((count / sum(count)) * 100, 2)) %>%
+  ungroup()
+
+# Define color map
+color_map <- c(
+  "on_time" = "green",        # Green
+  "mild_delay" = "yellow",     # Yellow
+  "moderate_delay" = "orange", # Orange
+  "severe_delay" = "red"    # Red
+)
+
+# Create bar plot
+ggplot(grouped_day_df, aes(x = dayofweekstring, y = percentage, fill = delay_classification)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = paste0(percentage, "%")), 
+            position = position_dodge(width = 0.9), 
+            vjust = -0.2, size = 3) +
+  scale_fill_manual(values = color_map) +
+  labs(title = "Percentage of Delays by Day of the Week",
+       x = "Day of the Week",
+       y = "Percentage",
+       fill = "Delay Classification") +
+  theme_minimal()
+
+```
+Based on the graph above, Saturdays has the highest percentage of flights that are on time at 82.98% while Fridays has the least percentage of flights that are on time at 76.12%. 
+
+Based on the visual above, I would recommend booking flights on Saturdays while avoiding booking flights on Fridays.
+
+# Finding best days of the week to book a plane ticket for each year
+```{r}
+# Group by year and day of week, and calculate average arrival delay
+grouped_days <- final_delay_df %>%
+  group_by(year, dayofweekstring) %>%
+  summarise(avg_arrdelay = mean(arrdelay, na.rm = TRUE), .groups = "drop")
+
+# Find the best day (with minimum average delay) for each year
+best_days <- grouped_days %>%
+  group_by(year) %>%
+  filter(avg_arrdelay == min(avg_arrdelay)) %>%
+  ungroup()
+
+# Print results
+for (i in 1:nrow(best_days)) {
+  year <- best_days$year[i]
+  day <- best_days$dayofweekstring[i]
+  delay <- round(best_days$avg_arrdelay[i], 2)
+  cat(sprintf("In %d, the best day to fly was %s with an average arrival delay of %.2f minutes.\n", year, day, delay))
+}
+
+```
+# Finding best time of day to book a plane ticket for each year
+```{r}
+# Group by year and time of day, calculate average arrival delay
+grouped_time <- final_delay_df %>%
+  group_by(year, time_of_day) %>%
+  summarise(avg_arrdelay = mean(arrdelay, na.rm = TRUE), .groups = "drop")
+
+# For each year, find the time of day with the lowest average delay
+best_times <- grouped_time %>%
+  group_by(year) %>%
+  filter(avg_arrdelay == min(avg_arrdelay)) %>%
+  ungroup()
+
+# Print results for each year
+for (i in 1:nrow(best_times)) {
+  year <- best_times$year[i]
+  time <- best_times$time_of_day[i]
+  delay <- round(best_times$avg_arrdelay[i], 2)
+  cat(sprintf("In %d, the best time of day to fly was %s with an average arrival delay of %.2f minutes.\n", year, time, delay))
+}
+
+```
+# Part 2(b) Evaluate wether older planes suffer more delays on a year-to-year basis.
+
+Loading dataset
+```{r}
+planes_data_df <- read.csv("dataset/plane-data.csv")
+print(planes_data_df)
+```
+
+Checking for null values and data type
+```{r}
+colSums(is.na(planes_data_df))
+str(planes_data_df)
+planes_data_df
+```
+
+Converting tailnums in plane_data_df to lowercase 
+```{r}
+planes_data_df$tailnum <- tolower(planes_data_df$tailnum)
+```
+
+Combining main_df and planes_data_df using 'tailnum'.
+```{r}
+merged_df <- main_df %>%
+  left_join(planes_data_df, by = "tailnum", suffix = c("main_df", "planes_data_df"))
+
+merged_df
+```
+Checking for null values in merged_df
+```{r}
+colSums(is.na(merged_df))
+```
+
+```{r}
+merged_df
+```
+We will be choosing and renaming some columns to answer the second question.
+
+Same as part (a), we will be using arrival delay only as DOT defines delay as arrival delay.
+```{r}
+age_df <- merged_df[, c("yearmain_df", "flightnum", "tailnum", "arrdelay", "yearplanes_data_df")]
+head(age_df)
+```
+Rename yearmain_df to current_year and yearplanes_data_df to plane_year
+```{r}
+colnames(age_df)[colnames(age_df) == "yearmain_df"] <- "current_year"
+colnames(age_df)[colnames(age_df) == "yearplanes_data_df"] <- "plane_year"
+
+head(age_df)
+```
+Removing null values from plane_year
+```{r}
+age_df <- age_df[!is.na(age_df$plane_year), ]
+
+colSums(is.na(age_df))
+```
+To find the age of a plane, we will be taking current year minus the issue date.
+```{r}
+#converting plane_year to integers before calculation
+age_df$plane_year <- as.integer(age_df$plane_year)
+
+#calculating plane age using current year minus issue date 
+age_df$plane_age <- age_df$current_year - age_df$plane_year
+head(age_df)
+
+
+```
+
+```{r}
+colSums(is.na(age_df))
+```
+
+Removing null values in arrival delays and plane age
+```{r}
+age_df <- age_df[!is.na(age_df$arrdelay) & !is.na(age_df$plane_age), ]
+colSums(is.na(age_df))
+
+```
+We will now be grouping the dataset by the plane's tail number to get the average delays for each model of plane.
+```{r}
+plane_summary_df <- age_df %>%
+  group_by(tailnum) %>%
+  summarise(
+    average_arrdelay = mean(arrdelay, na.rm = TRUE),
+    plane_age = first(plane_age)                       
+  )
+head(plane_summary_df)
+```
+Removing plane ages that are less than 0
+```{r}
+plane_summary_df <- plane_summary_df %>%
+  filter(plane_age >= 0)
+
+head(plane_summary_df)
+```
+We will now be grouping the dataset by the plane's age. 
+```{r}
+plane_age_groups <- plane_summary_df %>%
+  group_by(plane_age) %>%
+  summarise(average_arrdelay = mean(average_arrdelay, na.rm = TRUE))
+head(plane_age_groups)
+```
+Plotting average arrival delay against plane age to see the general trend. 
+```{r}
+ggplot(plane_age_groups, aes(x = plane_age, y = average_arrdelay)) +
+  geom_line(color = "red") +
+  geom_point(color = "red") +
+  labs(
+    title = "Average Arrival Delay by Plane Age",
+    x = "Plane Age",
+    y = "Average Arrival Delay"
+  ) +
+  theme_minimal()
+```
+Based on the graph above, from age 0 to 24, the general trend of delays against plane age is decreasing, meaning as age increases, delay decreases. However, after the age of 24, delay is generally increasing as age increases.
+
+
+```{r}
+ggplot(plane_age_groups, aes(x = plane_age, y = average_arrdelay)) +
+  geom_point() +  # Scatterplot points
+  geom_smooth(method = "lm", color = "red") +  # Linear regression line
+  labs(
+    title = "Plane Age vs Average Arrival Delay with Trend Line",
+    x = "Plane Age",
+    y = "Average Arrival Delay"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+library(ggcorrplot)
+
+# Compute Spearman correlation
+corr_matrix <- cor(plane_age_groups, method = "spearman", use = "complete.obs")
+
+# Plot
+ggcorrplot(corr_matrix, lab = TRUE, lab_size = 4, 
+           colors = c("blue", "white", "red"),
+           title = "Feature Correlation Heatmap")
+
+```
+This shows that plane age has a negative correlation between arrival delays, which supports the graphs above, where as plane age increases, delays generally decrease. 
+
+
+Reasons why this might be the case:
+
+- newer planes being assigned to longer and more complicated routes while older planes being assigned to shorter and simpler routes, leading to newer planes having more delays compared to older planes
+
+- older planes may be used much lesser than newer planes, leading to more instances of delays for newer planes
+
+- there may be a survivorship bias as the older planes still flying are more reliable than the newer ones.
+
+
+# Part 2(c) Logistic Regression for the probability of diverted US flights
+Data Cleaning 
+We will be first be removing cancelled flights as cancelled flights can't be diverted.
+
+```{r}
+diverted_df <- main_df
+diverted_df <- diverted_df[diverted_df$cancelled == 0, ]
+table(diverted_df$cancelled)
+```
+Removing null values in columns that we will be using for logistic regression.
+```{r}
+colSums(is.na(diverted_df))
+
+```
+
+```{r}
+features <- c('month', 'dayofmonth', 'dayofweek', 'crsdeptime', 'crsarrtime', 'distance','uniquecarrier', 'origin', 'dest', 'depdelay', 'taxiout')
+
+target <- 'diverted'
+
+diverted_df <- diverted_df[!is.na(diverted_df[[target]]) & !apply(diverted_df[features], 1, anyNA), ]
+
+colSums(is.na(diverted_df))
+```
+We will be first checking for perfect multicollinearity to identify and remove redundant variables.
+```{r}
+numerical_variables <- c('month', 'dayofmonth', 'dayofweek', 'crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+
+colSums(is.na(diverted_df[numerical_variables]))
+```
+
+```{r}
+library(ggcorrplot)
+
+# Assign numerical variables to corr_df
+corr_df <- diverted_df[, numerical_variables]
+
+# Compute the Pearson correlation matrix
+corr_matrix <- cor(corr_df, method = "pearson", use = "complete.obs")
+
+# Plot the correlation heatmap
+ggcorrplot(corr_matrix, lab = TRUE, lab_size = 4, 
+           colors = c("blue", "white", "red"),
+           title = "Pearson Correlation Heatmap (Numeric Features)")
+
+```
+Since there is no pairwise correlation that is equal to one, the assumption of no perfect multicollinerity is satisfied. However, we will be removing dayofmonth as it has very low correlation and has low predictive value.
+
+# Logistic Regression Analysis throughout the years
+
+For R, we will be splitting the dataset into its years so that there is enough memory to run the code.
+
+```{r}
+diverted_df
+```
+Selecting the columns 
+```{r}
+# Using features and target that are defined earlier
+model_df <- diverted_df %>%
+  select(all_of(features), all_of(target),year)
+model_df
+```
+
+
+```{r}
+print(colSums(is.na(model_df)))
+```
+Splitting the dataset by its year
+```{r}
+five_df <- model_df %>% filter(year == 1995)
+six_df <- model_df %>% filter(year == 1996)
+seven_df <- model_df %>% filter(year == 1997)
+eight_df <- model_df %>% filter(year == 1998)
+nine_df <- model_df %>% filter(year == 1999)
+
+head(five_df)
+
+```
+
+Maximising the amount of memory
+```{r}
+# List of all objects currently in the environment
+all_objects <- ls()
+
+# List of objects to keep (for example, keep year-wise dataframes and other necessary elements for model)
+items_to_keep <- c("five_df", "six_df", "seven_df", "eight_df", "nine_df")
+
+# Identify objects to remove by subtracting the ones you want to keep
+objects_to_remove <- setdiff(all_objects, items_to_keep)
+
+# Remove the unnecessary objects from the environment
+rm(list = objects_to_remove)
+
+# Optionally, check that only the necessary objects remain
+print(ls())
+
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(pROC)
+library(ROCR)
+
+# Define categorical and numerical features
+cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
+num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+target <- 'diverted'
+
+# Prepare the dataset for the year 1995 (example for five_df)
+df_year <- five_df %>%
+  drop_na(all_of(c(cat_features, num_features, target)))
+
+# Check if there's data after filtering
+if (nrow(df_year) == 0) {
+  stop("No data for year 1995")
+}
+
+# Split into X (features) and y (target)
+X <- df_year[, c(cat_features, num_features)]
+y <- df_year[, target]
+
+# Train/test split with stratification
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.7, list = FALSE)
+X_train <- X[train_index, ]
+y_train <- y[train_index]
+X_test <- X[-train_index, ]
+y_test <- y[-train_index]
+
+# Preprocessing: Center and scale numeric features and apply one-hot encoding to categorical features
+preProc <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProc, X_train)
+X_test <- predict(preProc, X_test)
+
+# Apply one-hot encoding for categorical features
+X_train_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_train)
+X_test_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_test)
+
+# Combine the numerical and encoded categorical features
+X_train_final <- cbind(X_train[, num_features], X_train_cat)
+X_test_final <- cbind(X_test[, num_features], X_test_cat)
+
+# Logistic Regression Model
+model <- glm(y_train ~ ., data = as.data.frame(X_train_final), family = binomial(link = 'logit'))
+
+# Predictions and probabilities
+y_pred <- predict(model, as.data.frame(X_test_final), type = "response")
+y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
+
+# Evaluate the model using confusion matrix, accuracy, and F1 score
+confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(y_test))
+
+print("Year 1995 Results")
+print(confusion)
+
+# ROC Curve
+roc_obj <- roc(y_test, y_pred)
+plot(roc_obj, col = "blue", main = "ROC Curve for Year 1995")
+print(paste("AUC:", auc(roc_obj)))
+
+
+```
+
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+We will first be splitting our features into categorical and numerical features
+```{r}
+# Categorical features
+cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
+
+# Numerical features
+num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+```
+
+Using a for loop, cycle throughout the years and apply logistic regeression to it
+```{r}
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(pROC)
+library(ROCR)
+library(tidyr)
+
+# Define features and target
+features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest', 'crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+target <- 'diverted'
+
+# Function to preprocess and fit logistic regression model
+process_and_fit_model <- function(df_year) {
+  # Preprocessing: Center and scale numeric features
+  preProc <- preProcess(df_year[, features], method = c("center", "scale"))
+  df_year_scaled <- predict(preProc, df_year[, features])
+
+  # Logistic Regression Model
+  model <- glm(diverted ~ ., data = cbind(df_year_scaled, diverted = df_year[, target]), family = binomial(link = 'logit'))
+  
+  # Store coefficients
+  coef_values <- coef(model)
+  coef_df <- data.frame(feature = names(coef_values), coefficient = coef_values, year = df_year$year[1])
+
+  # Predictions
+  y_pred <- predict(model, df_year_scaled, type = "response")
+  y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
+  
+  # Confusion Matrix and ROC Curve
+  confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(df_year[, target]))
+  roc_obj <- roc(df_year[, target], y_pred)
+  
+  list(coef_df = coef_df, confusion = confusion, roc_obj = roc_obj)
+}
+
+# Empty list to store coefficients for each year
+coef_list <- list()
+
+# Loop through years to train and evaluate the model for each year
+for (year in sort(unique(diverted_df$year))) {
+  
+  # Filter data for current year and drop rows with NA in selected features and target
+  df_year <- diverted_df %>%
+    filter(year == year) %>%
+    drop_na(all_of(c(features, target)))
+  
+  if (nrow(df_year) > 0) {
+    result <- process_and_fit_model(df_year)
+    
+    # Store coefficients
+    coef_list[[length(coef_list) + 1]] <- result$coef_df
+    
+    # Print confusion and ROC AUC for this year
+    print(paste("\n--- Year", year, "---"))
+    print(result$confusion)
+    plot(result$roc_obj, col = "blue", main = paste("ROC Curve - Year", year))
+    print(paste("AUC:", auc(result$roc_obj)))
+  }
+}
+
+# Combine all coefficients into one data frame
+coef_df_final <- do.call(rbind, coef_list)
+
+# Plot the coefficients or save them
+if (nrow(coef_df_final) > 0) {
+  ggplot(coef_df_final, aes(x = feature, y = coefficient, color = factor(year))) + 
+    geom_bar(stat = "identity") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+    labs(title = "Logistic Regression Coefficients per Year", x = "Features", y = "Coefficient")
+} else {
+  print("No coefficients to plot.")
+}
+
+
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Combine all coefficients into one data frame
+coeffs_df <- do.call(rbind, coeff)
+
+# Choose key features to visualize
+features_to_plot <- c('num__distance', 'cat__month_2', 'cat__dayofweek_2', 'num__depdelay', 'num__taxiout')
+
+# Filter the coefficients for the features of interest
+subset_coeffs <- coeffs_df %>% filter(feature %in% features_to_plot)
+
+# Plot the coefficients over time
+ggplot(subset_coeffs, aes(x = year, y = coefficient, color = feature, group = feature)) +
+  geom_line() +
+  geom_point() +  # Add markers
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray", size = 1) +  # Reference line at y = 0
+  labs(
+    title = "Logistic Regression Coefficients Over Time",
+    x = "Year",
+    y = "Coefficient"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(title = "Feature"))
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
