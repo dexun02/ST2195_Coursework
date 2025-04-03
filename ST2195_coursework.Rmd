@@ -30,11 +30,9 @@ for (year in 1995:1999) {
 
     # Remove negative values and Null values for time
     df <- df[df$ActualElapsedTime >= 0 | is.na(df$ActualElapsedTime), ]
-
-    # Remove negative values and Null values for time
     df <- df[df$CRSElapsedTime >= 0 | is.na(df$CRSElapsedTime), ]
 
-    # #Remove values greater than 2359 and Null values for 24 hour time
+    # Remove values greater than 2359 and Null values for 24 hour time
     df <- df[df$DepTime <= 2359 | is.na(df$DepTime), ]
     df <- df[df$ArrTime <= 2359 | is.na(df$ArrTime), ]
 
@@ -43,13 +41,17 @@ for (year in 1995:1999) {
   }
 }
 
-# Display the first few rows of the final DataFrame
+# Combine all yearly cleaned data into one data frame
 main_df <- do.call(rbind, df_list)
 
 # View first few rows
 head(main_df)
+
 ```
 
+```{r}
+list.files("dataset")
+```
 Converting main_df column names to lowercase.
 ```{r}
 colnames(main_df) <- tolower(colnames(main_df))
@@ -72,7 +74,6 @@ Checking for null values
 ```{r}
 # Count missing (NA) values for each column
 colSums(is.na(delay_df))
-
 ```
 
 Summary of delay_df
@@ -415,9 +416,10 @@ str(planes_data_df)
 planes_data_df
 ```
 
-Converting tailnums in plane_data_df to lowercase 
+Converting tailnums in plane_data_df and main_df to lowercase 
 ```{r}
 planes_data_df$tailnum <- tolower(planes_data_df$tailnum)
+main_df$tailnum <- tolower(main_df$tailnum)
 ```
 
 Combining main_df and planes_data_df using 'tailnum'.
@@ -477,6 +479,9 @@ age_df <- age_df[!is.na(age_df$arrdelay) & !is.na(age_df$plane_age), ]
 colSums(is.na(age_df))
 
 ```
+
+# General Trend
+
 We will now be grouping the dataset by the plane's tail number to get the average delays for each model of plane.
 ```{r}
 plane_summary_df <- age_df %>%
@@ -501,6 +506,7 @@ plane_age_groups <- plane_summary_df %>%
   summarise(average_arrdelay = mean(average_arrdelay, na.rm = TRUE))
 head(plane_age_groups)
 ```
+
 Plotting average arrival delay against plane age to see the general trend. 
 ```{r}
 ggplot(plane_age_groups, aes(x = plane_age, y = average_arrdelay)) +
@@ -530,8 +536,6 @@ ggplot(plane_age_groups, aes(x = plane_age, y = average_arrdelay)) +
 ```
 
 ```{r}
-library(ggcorrplot)
-
 # Compute Spearman correlation
 corr_matrix <- cor(plane_age_groups, method = "spearman", use = "complete.obs")
 
@@ -543,6 +547,130 @@ ggcorrplot(corr_matrix, lab = TRUE, lab_size = 4,
 ```
 This shows that plane age has a negative correlation between arrival delays, which supports the graphs above, where as plane age increases, delays generally decrease. 
 
+# Trend throughout the years.
+
+We will first group the dataset by its years.
+```{r}
+# Create an empty list to store the yearly DataFrames
+yearly_age_dfs <- list()
+
+# Loop through the years and create a filtered DataFrame for each year
+for (year in 1995:1999) {
+  yearly_age_dfs[[as.character(year)]] <- age_df[age_df$current_year == year, ]
+}
+
+# Check the result for one of the years
+head(yearly_age_dfs[["1995"]])
+```
+Grouping dataset by tail number
+```{r}
+# Create an empty list to store the yearly plane summaries
+yearly_plane_summaries <- list()
+
+# Loop through each year's DataFrame in the list
+for (year in names(yearly_age_dfs)) {
+  
+  # Get the data frame for the current year
+  df <- yearly_age_dfs[[year]]
+  
+  # Summarize the data by 'tailnum'
+  summary <- df %>%
+    group_by(tailnum) %>%
+    summarise(
+      average_arrdelay = mean(arrdelay, na.rm = TRUE),
+      plane_age = first(plane_age)
+    ) %>%
+    ungroup()  # To remove the grouping
+  
+  # Store the summary in the list with the year as the key
+  yearly_plane_summaries[[year]] <- summary
+}
+
+# Check the result for one of the years
+head(yearly_plane_summaries[["1995"]])
+```
+Removing plane age that are less than 0
+```{r}
+# Loop through each year in the yearly_plane_summaries list
+for (year in names(yearly_plane_summaries)) {
+  
+  # Filter the summary for the current year where plane_age >= 0
+  yearly_plane_summaries[[year]] <- yearly_plane_summaries[[year]] %>%
+    filter(plane_age >= 0)
+}
+
+# Check the result for one of the years
+head(yearly_plane_summaries[["1995"]])
+
+```
+Grouping the dataset by its plane age
+```{r}
+# Dictionary to store grouped-by-age DataFrames
+yearly_age_groups <- list()
+
+# Loop through each year's summary DataFrame
+for (year in names(yearly_plane_summaries)) {
+  
+  # Group by plane_age and calculate the mean of average_arrdelay
+  grouped <- yearly_plane_summaries[[year]] %>%
+    group_by(plane_age) %>%
+    summarise(average_arrdelay = mean(average_arrdelay, na.rm = TRUE)) %>%
+    ungroup()
+  
+  # Store the grouped data in the list
+  yearly_age_groups[[year]] <- grouped
+}
+
+# Check the result for one of the years
+head(yearly_age_groups[["1995"]])
+
+```
+
+```{r}
+# Loop through each year's grouped data
+for (year in names(yearly_age_groups)) {
+  
+  # Create the plot using ggplot2
+  p <- ggplot(yearly_age_groups[[year]], aes(x = plane_age, y = average_arrdelay)) +
+    geom_point(size = 2) +  # Scatter plot
+    geom_smooth(method = "lm", color = "red", se = FALSE) +  # Add regression line
+    ggtitle(paste("Plane Age vs Average Arrival Delay (", year, ")", sep = "")) +
+    xlab("Plane Age (Years)") +
+    ylab("Average Arrival Delay (Minutes)") +
+    theme_minimal()
+  
+  # Print the plot
+  print(p)
+}
+```
+
+
+Plot Correlation Matrix
+```{r}
+# Loop through each year's grouped data
+for (year in names(yearly_age_groups)) {
+  
+  # Extract the relevant dataframe for the current year
+  df <- yearly_age_groups[[year]]
+  
+  # Compute Spearman correlation matrix (for the two columns: plane_age and average_arrdelay)
+  corr_matrix <- cor(df, method = "spearman", use = "complete.obs")
+
+  # Plot the correlation matrix using ggcorrplot
+  corr_plot <- ggcorrplot(corr_matrix, 
+                          lab = TRUE,             # Display correlation coefficients on the heatmap
+                          lab_size = 4,           # Size of correlation values
+                          colors = c("blue", "white", "red"),  # Color gradient
+                          title = paste("Feature Correlation Heatmap (", year, ")", sep = ""), 
+                          method = "square")      # Square-shaped cells
+  
+  # Display the plot
+  print(corr_plot)
+}
+
+```
+These heatmaps support the earlier visual observations that the trend between plane age and average arrival delay is generally downward. In 1995, 1996, and 1997, the Spearman correlation between plane age and average arrival delay ranges from -0.44 to -0.56, indicating a moderate negative correlation. This suggests that older aircraft were associated with lower average arrival delays during these years. In contrast, 1998 shows a stronger negative correlation of -0.67, while 1999 shows a weaker negative correlation of -0.35, indicating that the relationship varied slightly from year to year but remained consistently negative across the five-year period.
+
 
 Reasons why this might be the case:
 
@@ -550,13 +678,14 @@ Reasons why this might be the case:
 
 - older planes may be used much lesser than newer planes, leading to more instances of delays for newer planes
 
-- there may be a survivorship bias as the older planes still flying are more reliable than the newer ones.
+- there may be a survivorship bias as the older planes still flying are more reliable than the newer ones. 
 
 
 # Part 2(c) Logistic Regression for the probability of diverted US flights
-Data Cleaning 
-We will be first be removing cancelled flights as cancelled flights can't be diverted.
 
+Data Cleaning 
+
+We will be first be removing cancelled flights as cancelled flights can't be diverted.
 ```{r}
 diverted_df <- main_df
 diverted_df <- diverted_df[diverted_df$cancelled == 0, ]
@@ -603,7 +732,7 @@ Since there is no pairwise correlation that is equal to one, the assumption of n
 
 # Logistic Regression Analysis throughout the years
 
-For R, we will be splitting the dataset into its years so that there is enough memory to run the code.
+For R, we will be splitting the dataset into its years so that there is enough memory to run the code. Firstly, we will maximise memory by clearing all the other objects before running the logistic regression for the year. The coefficient will then be downloaded as a csv before repeating the steps again for the next year. At the end, we will then add all the coefficients into a dataframe for visualisations
 
 ```{r}
 diverted_df
@@ -632,13 +761,24 @@ head(five_df)
 
 ```
 
-Maximising the amount of memory
+```{r}
+# Save the DataFrame as a CSV file
+#write.csv(five_df, file = "dataset/five_df.csv", row.names = FALSE)
+#write.csv(six_df, file = "dataset/six_df.csv", row.names = FALSE)
+#write.csv(seven_df, file = "dataset/seven_df.csv", row.names = FALSE)
+#write.csv(eight_df, file = "dataset/eight_df.csv", row.names = FALSE)
+#write.csv(nine_df, file = "dataset/nine_df.csv", row.names = FALSE)
+
+```
+
+
+Maximising the amount of memory by removing other variables that are not needed 
 ```{r}
 # List of all objects currently in the environment
 all_objects <- ls()
 
-# List of objects to keep (for example, keep year-wise dataframes and other necessary elements for model)
-items_to_keep <- c("five_df", "six_df", "seven_df", "eight_df", "nine_df")
+# keep 1995 dataset
+items_to_keep <- c("five_df")
 
 # Identify objects to remove by subtracting the ones you want to keep
 objects_to_remove <- setdiff(all_objects, items_to_keep)
@@ -646,25 +786,26 @@ objects_to_remove <- setdiff(all_objects, items_to_keep)
 # Remove the unnecessary objects from the environment
 rm(list = objects_to_remove)
 
-# Optionally, check that only the necessary objects remain
+# Check that only the necessary objects remain
 print(ls())
 
 ```
 
+1995 Logistic Regression
 ```{r}
-# Load necessary libraries
-library(dplyr)
-library(caret)
-library(ggplot2)
-library(pROC)
-library(ROCR)
+# Define categorical and numerical features
+cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
+num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+target <- 'diverted'
+```
 
+```{r}
 # Define categorical and numerical features
 cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
 num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
 target <- 'diverted'
 
-# Prepare the dataset for the year 1995 (example for five_df)
+# Prepare the dataset for the year 1995 (five_df)
 df_year <- five_df %>%
   drop_na(all_of(c(cat_features, num_features, target)))
 
@@ -677,15 +818,15 @@ if (nrow(df_year) == 0) {
 X <- df_year[, c(cat_features, num_features)]
 y <- df_year[, target]
 
-# Train/test split with stratification
+# Stratified split with 30% of data
 set.seed(42)
-train_index <- createDataPartition(y, p = 0.7, list = FALSE)
+train_index <- createDataPartition(y, p = 0.3, list = FALSE, times = 1)  # 30% split with stratification
 X_train <- X[train_index, ]
 y_train <- y[train_index]
 X_test <- X[-train_index, ]
 y_test <- y[-train_index]
 
-# Preprocessing: Center and scale numeric features and apply one-hot encoding to categorical features
+# Preprocessing: Center and scale numeric features, and apply one-hot encoding to categorical features
 preProc <- preProcess(X_train, method = c("center", "scale"))
 X_train <- predict(preProc, X_train)
 X_test <- predict(preProc, X_test)
@@ -716,220 +857,480 @@ roc_obj <- roc(y_test, y_pred)
 plot(roc_obj, col = "blue", main = "ROC Curve for Year 1995")
 print(paste("AUC:", auc(roc_obj)))
 
+# Save coefficients for future analysis
+coef_values <- coef(model)
+coef_df <- data.frame(
+  feature = names(coef_values),
+  coefficient = coef_values
+)
+
+print(coef_df)
+
 
 ```
-
-
-
+downloading coef_df
 ```{r}
-
+write.csv(coef_df, file = "dataset/coef_df.csv", row.names = FALSE)
 ```
 
-```{r}
+# Repeat the steps for 1996,1997,1998 and 1999
 
+# 1996 Logistic Regression
+Reading dataset 
+```{r}
+six_df <- read.csv("dataset/six_df.csv")
+head(six_df)
 ```
-
+Deleting objects that are not in use 
 ```{r}
+# List of all objects currently in the environment
+all_objects <- ls()
 
+# keep 1995 dataset
+items_to_keep <- c("six_df")
+
+# Identify objects to remove by subtracting the ones you want to keep
+objects_to_remove <- setdiff(all_objects, items_to_keep)
+
+# Remove the unnecessary objects from the environment
+rm(list = objects_to_remove)
+
+# Check that only the necessary objects remain
+print(ls())
 ```
-
+1996 Logistic Regression 
 ```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-We will first be splitting our features into categorical and numerical features
-```{r}
-# Categorical features
+# Define categorical and numerical features
 cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
-
-# Numerical features
 num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
-```
-
-Using a for loop, cycle throughout the years and apply logistic regeression to it
-```{r}
-library(dplyr)
-library(caret)
-library(ggplot2)
-library(pROC)
-library(ROCR)
-library(tidyr)
-
-# Define features and target
-features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest', 'crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
 target <- 'diverted'
 
-# Function to preprocess and fit logistic regression model
-process_and_fit_model <- function(df_year) {
-  # Preprocessing: Center and scale numeric features
-  preProc <- preProcess(df_year[, features], method = c("center", "scale"))
-  df_year_scaled <- predict(preProc, df_year[, features])
+# Prepare the dataset for the year 1996 (six_df)
+df_year <- six_df %>%
+  drop_na(all_of(c(cat_features, num_features, target)))
 
-  # Logistic Regression Model
-  model <- glm(diverted ~ ., data = cbind(df_year_scaled, diverted = df_year[, target]), family = binomial(link = 'logit'))
-  
-  # Store coefficients
-  coef_values <- coef(model)
-  coef_df <- data.frame(feature = names(coef_values), coefficient = coef_values, year = df_year$year[1])
-
-  # Predictions
-  y_pred <- predict(model, df_year_scaled, type = "response")
-  y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
-  
-  # Confusion Matrix and ROC Curve
-  confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(df_year[, target]))
-  roc_obj <- roc(df_year[, target], y_pred)
-  
-  list(coef_df = coef_df, confusion = confusion, roc_obj = roc_obj)
+# Check if there's data after filtering
+if (nrow(df_year) == 0) {
+  stop("No data for year 1996")
 }
 
-# Empty list to store coefficients for each year
-coef_list <- list()
+# Split into X (features) and y (target)
+X <- df_year[, c(cat_features, num_features)]
+y <- df_year[, target]
 
-# Loop through years to train and evaluate the model for each year
-for (year in sort(unique(diverted_df$year))) {
-  
-  # Filter data for current year and drop rows with NA in selected features and target
-  df_year <- diverted_df %>%
-    filter(year == year) %>%
-    drop_na(all_of(c(features, target)))
-  
-  if (nrow(df_year) > 0) {
-    result <- process_and_fit_model(df_year)
-    
-    # Store coefficients
-    coef_list[[length(coef_list) + 1]] <- result$coef_df
-    
-    # Print confusion and ROC AUC for this year
-    print(paste("\n--- Year", year, "---"))
-    print(result$confusion)
-    plot(result$roc_obj, col = "blue", main = paste("ROC Curve - Year", year))
-    print(paste("AUC:", auc(result$roc_obj)))
-  }
+# Stratified split with 20% of data (without the 'stratify' argument, it works by default for factors)
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.3, list = FALSE, times = 1)  # 30% split with stratification
+X_train <- X[train_index, ]
+y_train <- y[train_index]
+X_test <- X[-train_index, ]
+y_test <- y[-train_index]
+
+# Preprocessing: Center and scale numeric features, and apply one-hot encoding to categorical features
+preProc <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProc, X_train)
+X_test <- predict(preProc, X_test)
+
+# Apply one-hot encoding for categorical features
+X_train_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_train)
+X_test_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_test)
+
+# Combine the numerical and encoded categorical features
+X_train_final <- cbind(X_train[, num_features], X_train_cat)
+X_test_final <- cbind(X_test[, num_features], X_test_cat)
+
+# Logistic Regression Model
+model <- glm(y_train ~ ., data = as.data.frame(X_train_final), family = binomial(link = 'logit'))
+
+# Predictions and probabilities
+y_pred <- predict(model, as.data.frame(X_test_final), type = "response")
+y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
+
+# Evaluate the model using confusion matrix, accuracy, and F1 score
+confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(y_test))
+
+print("Year 1996 Results")
+print(confusion)
+
+# ROC Curve
+roc_obj <- roc(y_test, y_pred)
+plot(roc_obj, col = "blue", main = "ROC Curve for Year 1996")
+print(paste("AUC:", auc(roc_obj)))
+
+# Save coefficients for future analysis
+coef_values <- coef(model)
+six_coef_df <- data.frame(
+  feature = names(coef_values),
+  coefficient = coef_values
+)
+
+print(six_coef_df)
+```
+downloading 'six_coef_df'
+```{r}
+write.csv(six_coef_df, file = "dataset/six_coef_df.csv", row.names = FALSE)
+```
+
+# 1997 Logistic Regression
+Reading dataset 
+```{r}
+seven_df <- read.csv("dataset/seven_df.csv")
+head(seven_df)
+```
+
+Deleting objects that are not in use 
+```{r}
+# List of all objects currently in the environment
+all_objects <- ls()
+
+# keep 1997 dataset
+items_to_keep <- c("seven_df")
+
+# Identify objects to remove by subtracting the ones you want to keep
+objects_to_remove <- setdiff(all_objects, items_to_keep)
+
+# Remove the unnecessary objects from the environment
+rm(list = objects_to_remove)
+
+# Check that only the necessary objects remain
+print(ls())
+```
+1997 Logistic Regression 
+```{r}
+# Define categorical and numerical features
+cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
+num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+target <- 'diverted'
+
+# Prepare the dataset for the year 1997 (seven_df)
+df_year <- seven_df %>%
+  drop_na(all_of(c(cat_features, num_features, target)))
+
+# Check if there's data after filtering
+if (nrow(df_year) == 0) {
+  stop("No data for year 1997")
 }
 
-# Combine all coefficients into one data frame
-coef_df_final <- do.call(rbind, coef_list)
+# Split into X (features) and y (target)
+X <- df_year[, c(cat_features, num_features)]
+y <- df_year[, target]
 
-# Plot the coefficients or save them
-if (nrow(coef_df_final) > 0) {
-  ggplot(coef_df_final, aes(x = feature, y = coefficient, color = factor(year))) + 
-    geom_bar(stat = "identity") +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
-    labs(title = "Logistic Regression Coefficients per Year", x = "Features", y = "Coefficient")
-} else {
-  print("No coefficients to plot.")
+# Stratified split with 30% of data
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.3, list = FALSE, times = 1)  # 30% split with stratification
+X_train <- X[train_index, ]
+y_train <- y[train_index]
+X_test <- X[-train_index, ]
+y_test <- y[-train_index]
+
+# Preprocessing: Center and scale numeric features, and apply one-hot encoding to categorical features
+preProc <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProc, X_train)
+X_test <- predict(preProc, X_test)
+
+# Apply one-hot encoding for categorical features
+X_train_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_train)
+X_test_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_test)
+
+# Combine the numerical and encoded categorical features
+X_train_final <- cbind(X_train[, num_features], X_train_cat)
+X_test_final <- cbind(X_test[, num_features], X_test_cat)
+
+# Logistic Regression Model
+model <- glm(y_train ~ ., data = as.data.frame(X_train_final), family = binomial(link = 'logit'))
+
+# Predictions and probabilities
+y_pred <- predict(model, as.data.frame(X_test_final), type = "response")
+y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
+
+# Evaluate the model using confusion matrix, accuracy, and F1 score
+confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(y_test))
+
+print("Year 1997 Results")
+print(confusion)
+
+# ROC Curve
+roc_obj <- roc(y_test, y_pred)
+plot(roc_obj, col = "blue", main = "ROC Curve for Year 1997")
+print(paste("AUC:", auc(roc_obj)))
+
+# Save coefficients for future analysis
+coef_values <- coef(model)
+seven_coef_df <- data.frame(
+  feature = names(coef_values),
+  coefficient = coef_values
+)
+
+print(seven_coef_df)
+```
+
+downloading 'seven_coef_df'
+```{r}
+write.csv(seven_coef_df, file = "dataset/seven_coef_df.csv", row.names = FALSE)
+head(seven_coef_df)
+```
+
+# 1998 Logistic Regression
+Reading dataset 
+```{r}
+eight_df <- read.csv("dataset/eight_df.csv")
+head(eight_df)
+```
+Deleting objects that are not in use 
+```{r}
+# List of all objects currently in the environment
+all_objects <- ls()
+
+# keep 1998 dataset
+items_to_keep <- c("eight_df")
+
+# Identify objects to remove by subtracting the ones you want to keep
+objects_to_remove <- setdiff(all_objects, items_to_keep)
+
+# Remove the unnecessary objects from the environment
+rm(list = objects_to_remove)
+
+# Check that only the necessary objects remain
+print(ls())
+```
+
+1998 Logistic Regression 
+```{r}
+# Define categorical and numerical features
+cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
+num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+target <- 'diverted'
+
+# Prepare the dataset for the year 1998 (eight_df)
+df_year <- eight_df %>%
+  drop_na(all_of(c(cat_features, num_features, target)))
+
+# Check if there's data after filtering
+if (nrow(df_year) == 0) {
+  stop("No data for year 1998")
 }
 
+# Split into X (features) and y (target)
+X <- df_year[, c(cat_features, num_features)]
+y <- df_year[, target]
 
+# Stratified split with 30% of data 
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.3, list = FALSE, times = 1)  # 30% split with stratification
+X_train <- X[train_index, ]
+y_train <- y[train_index]
+X_test <- X[-train_index, ]
+y_test <- y[-train_index]
 
+# Preprocessing: Center and scale numeric features, and apply one-hot encoding to categorical features
+preProc <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProc, X_train)
+X_test <- predict(preProc, X_test)
+
+# Apply one-hot encoding for categorical features
+X_train_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_train)
+X_test_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_test)
+
+# Combine the numerical and encoded categorical features
+X_train_final <- cbind(X_train[, num_features], X_train_cat)
+X_test_final <- cbind(X_test[, num_features], X_test_cat)
+
+# Logistic Regression Model
+model <- glm(y_train ~ ., data = as.data.frame(X_train_final), family = binomial(link = 'logit'))
+
+# Predictions and probabilities
+y_pred <- predict(model, as.data.frame(X_test_final), type = "response")
+y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
+
+# Evaluate the model using confusion matrix, accuracy, and F1 score
+confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(y_test))
+
+print("Year 1998 Results")
+print(confusion)
+
+# ROC Curve
+roc_obj <- roc(y_test, y_pred)
+plot(roc_obj, col = "blue", main = "ROC Curve for Year 1998")
+print(paste("AUC:", auc(roc_obj)))
+
+# Save coefficients for future analysis
+coef_values <- coef(model)
+eight_coef_df <- data.frame(
+  feature = names(coef_values),
+  coefficient = coef_values
+)
+
+print(eight_coef_df)
+```
+
+downloading 'eight_coef_df'
+```{r}
+write.csv(eight_coef_df, file = "dataset/eight_coef_df.csv", row.names = FALSE)
+```
+
+# 1999 Logistic Regression
+Reading dataset 
+```{r}
+nine_df <- read.csv("dataset/nine_df.csv")
+head(nine_df)
+```
+Deleting objects that are not in use 
+```{r}
+# List of all objects currently in the environment
+all_objects <- ls()
+
+# keep 1999 dataset
+items_to_keep <- c("nine_df")
+
+# Identify objects to remove by subtracting the ones you want to keep
+objects_to_remove <- setdiff(all_objects, items_to_keep)
+
+# Remove the unnecessary objects from the environment
+rm(list = objects_to_remove)
+
+# Check that only the necessary objects remain
+print(ls())
+```
+
+1999 Logistic Regression 
+```{r}
+# Define categorical and numerical features
+cat_features <- c('month', 'dayofweek', 'uniquecarrier', 'origin', 'dest')
+num_features <- c('crsdeptime', 'crsarrtime', 'distance', 'depdelay', 'taxiout')
+target <- 'diverted'
+
+# Prepare the dataset for the year 1999 (nine_df)
+df_year <- nine_df %>%
+  drop_na(all_of(c(cat_features, num_features, target)))
+
+# Check if there's data after filtering
+if (nrow(df_year) == 0) {
+  stop("No data for year 1999")
+}
+
+# Split into X (features) and y (target)
+X <- df_year[, c(cat_features, num_features)]
+y <- df_year[, target]
+
+# Stratified split with 30% of data 
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.3, list = FALSE, times = 1)  # 30% split with stratification
+X_train <- X[train_index, ]
+y_train <- y[train_index]
+X_test <- X[-train_index, ]
+y_test <- y[-train_index]
+
+# Preprocessing: Center and scale numeric features, and apply one-hot encoding to categorical features
+preProc <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProc, X_train)
+X_test <- predict(preProc, X_test)
+
+# Apply one-hot encoding for categorical features
+X_train_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_train)
+X_test_cat <- model.matrix(~ month + dayofweek + uniquecarrier + origin + dest - 1, data = X_test)
+
+# Combine the numerical and encoded categorical features
+X_train_final <- cbind(X_train[, num_features], X_train_cat)
+X_test_final <- cbind(X_test[, num_features], X_test_cat)
+
+# Logistic Regression Model
+model <- glm(y_train ~ ., data = as.data.frame(X_train_final), family = binomial(link = 'logit'))
+
+# Predictions and probabilities
+y_pred <- predict(model, as.data.frame(X_test_final), type = "response")
+y_pred_class <- ifelse(y_pred > 0.5, 1, 0)
+
+# Evaluate the model using confusion matrix, accuracy, and F1 score
+confusion <- confusionMatrix(as.factor(y_pred_class), as.factor(y_test))
+
+print("Year 1999 Results")
+print(confusion)
+
+# ROC Curve
+roc_obj <- roc(y_test, y_pred)
+plot(roc_obj, col = "blue", main = "ROC Curve for Year 1999")
+print(paste("AUC:", auc(roc_obj)))
+
+# Save coefficients for future analysis
+coef_values <- coef(model)
+nine_coef_df <- data.frame(
+  feature = names(coef_values),
+  coefficient = coef_values
+)
+
+print(nine_coef_df)
+```
+
+downloading 'nine_coef_df'
+```{r}
+write.csv(eight_coef_df, file = "dataset/eight_coef_df.csv", row.names = FALSE)
+head(nine_coef_df)
+```
+
+Importing all the five coefficients from the years
+```{r}
+five_coef_df <- read.csv("dataset/coef_df.csv")
+six_coef_df <- read.csv("dataset/six_coef_df.csv")
+seven_coef_df <- read.csv("dataset/seven_coef_df.csv")
+eight_coef_df <- read.csv("dataset/eight_coef_df.csv")
+nine_coef_df <- read.csv("dataset/nine_coef_df.csv")
 ```
 
 ```{r}
-library(ggplot2)
-library(dplyr)
+six_coef_df
+```
+Adding a year column to coefficients dataframe
+```{r}
+five_coef_df$year <- 1995
+six_coef_df$year <- 1996
+seven_coef_df$year <- 1997
+eight_coef_df$year <- 1998
+nine_coef_df$year <- 1999
+```
 
-# Combine all coefficients into one data frame
-coeffs_df <- do.call(rbind, coeff)
+Adding all the coefficients into all_coef_df
+```{r}
+all_coef_df <- rbind(five_coef_df, six_coef_df, seven_coef_df, eight_coef_df, nine_coef_df)
+```
 
-# Choose key features to visualize
-features_to_plot <- c('num__distance', 'cat__month_2', 'cat__dayofweek_2', 'num__depdelay', 'num__taxiout')
+Taking out 'distance', 'month','dayofweek','depdelay',taxiout','originAMA', 'uniquecarrierUA', 'destTVC', 'crsdeptime' and 'crsarrtime' 
+```{r}
+selected_vars <- c("distance", "month", "dayofweek", "depdelay", "taxiout",
+                   "originAMA", "uniquecarrierUA", "destTVC", "crsdeptime", "crsarrtime")
 
-# Filter the coefficients for the features of interest
-subset_coeffs <- coeffs_df %>% filter(feature %in% features_to_plot)
+final_coefficients_df <- all_coef_df[all_coef_df$feature %in% selected_vars, ]
 
-# Plot the coefficients over time
-ggplot(subset_coeffs, aes(x = year, y = coefficient, color = feature, group = feature)) +
+```
+
+Plot the coefficients over time 
+```{r}
+ggplot(final_coefficients_df, aes(x = year, y = coefficient, color = feature)) +
   geom_line() +
-  geom_point() +  # Add markers
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray", size = 1) +  # Reference line at y = 0
-  labs(
-    title = "Logistic Regression Coefficients Over Time",
-    x = "Year",
-    y = "Coefficient"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "right") +
-  guides(color = guide_legend(title = "Feature"))
+  geom_point() +
+  labs(title = "Logistic Regression Coefficients Over Time",
+       x = "Year",
+       y = "Coefficient Value") +
+  theme_minimal()
 
 ```
+
+From the graphs and values above, we can see how the influence of different flight attributes on diversion probability evolves year to year. Features like distance and depdelay have consistent, strong positive effects, while others like month_2 and dayofweek_2 vary more in strength and direction.
 
 ```{r}
-
+# Count the occurrences of diverted = 0 and 1
+diverted_counts <- diverted_df %>%
+  count(Diverted)
+ggplot(diverted_counts, aes(x = as.factor(Diverted), y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = n), vjust = -0.5) +
+  labs(title = "Class Distribution: Diverted vs Not Diverted",
+       x = "Diverted",
+       y = "Count") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal()
 ```
 
-```{r}
 
-```
+As we can see, there is very little diverted compared to non-diverted flights in our dataset, which is causing our precision of our model to be extremely low for predicting diverted flights.  
 
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
+Hence, the model can be improved using resampling techniques for imbalanced data, such as SMOTE or random oversampling. SMOTE, which stands for Synthetic Minority Over-sampling Technique generates fake examples by interpolating between existing minority class samples. Random Oversampling on the other hand duplicates examples from the minority class. Both these examples help to address the class imbalance and thus, would obtain a better precision score. 
