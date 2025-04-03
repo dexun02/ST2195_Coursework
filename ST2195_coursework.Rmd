@@ -859,18 +859,18 @@ print(paste("AUC:", auc(roc_obj)))
 
 # Save coefficients for future analysis
 coef_values <- coef(model)
-coef_df <- data.frame(
+five_coef_df <- data.frame(
   feature = names(coef_values),
   coefficient = coef_values
 )
 
-print(coef_df)
+print(five_coef_df)
 
 
 ```
-downloading coef_df
+downloading five_coef_df
 ```{r}
-write.csv(coef_df, file = "dataset/coef_df.csv", row.names = FALSE)
+write.csv(five_coef_df, file = "dataset/five_coef_df.csv", row.names = FALSE)
 ```
 
 # Repeat the steps for 1996,1997,1998 and 1999
@@ -1269,7 +1269,7 @@ head(nine_coef_df)
 
 Importing all the five coefficients from the years
 ```{r}
-five_coef_df <- read.csv("dataset/coef_df.csv")
+five_coef_df <- read.csv("dataset/five_coef_df.csv")
 six_coef_df <- read.csv("dataset/six_coef_df.csv")
 seven_coef_df <- read.csv("dataset/seven_coef_df.csv")
 eight_coef_df <- read.csv("dataset/eight_coef_df.csv")
